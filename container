@@ -1,0 +1,193 @@
+#!/bin/sh
+
+
+CONFIG_ROOT="/etc/container"
+CONFIG_NAME='container.conf'
+
+CONFIG="$CONFIG_ROOT/$CONFIG_NAME"
+
+####################
+
+is_root() {
+  [ "$(id -u)" = '0' ]
+}
+
+is_web() {
+    echo "$1" | grep -q '^[[:space:]]*http://' ||
+      echo "$1" | grep -q '^[[:space:]]*https://'
+}
+
+strip_comment() {
+  grep -v '^[[:space:]]*#'
+}
+
+true_false() {
+  [ "$1" = 'true' ]
+}
+
+gen_config() {
+  echo \
+'# The base directory in which containers will be placed.
+export CONTAINERROOT=/usr/local/share/container
+
+# The rootfs-archive to use.
+# If path starts with "http(s)://",
+# "wget" is used to download the archive.
+export ROOTFS_AR=https://dl-cdn.alpinelinux.org/alpine/v3.17/releases/x86_64/alpine-minirootfs-3.17.0-x86_64.tar.gz
+
+# If true, a tmpfs is mounted inside the container’s "tmp" directory.
+# If system has low RAM, set this to false
+export TMPFS=true
+' > "$CONFIG"
+}
+
+load_config() {
+  [ -d "$CONFIG_ROOT" ] || mkdir -p "$CONFIG_ROOT";
+  [ -e "$CONFIG" ] || gen_config;
+
+  if "sh" "$CONFIG"; then
+    $(strip_comment < "$CONFIG")
+  else
+    echo 'Syntax error in config!'
+    exit 1
+  fi
+
+  mkdir -p "$CONTAINERROOT"
+}
+
+web_install() {
+  wget -O - "$ROOTFS_AR" 2>/dev/null |
+      tar xz
+}
+
+local_install() {
+  tar xf "$ROOTFS_AR"
+}
+
+mkcontainer() {
+  name="$1"
+  [ -z "$name" ] && read -p 'Name of the container: ' name
+
+  if [ -e "$CONTAINERROOT/$name" ]; then
+    echo "A container called '$name' already exists!" 1>&2
+    exit 1
+  fi
+
+  echo 'Creating container...'
+
+  mkdir -p "$CONTAINERROOT/$name"
+  cd "$CONTAINERROOT/$name"
+
+  echo 'Installing root-fs...'
+
+
+  if is_web "$ROOTFS_AR" > /dev/null; then
+    web_install
+  else
+    local_install
+  fi ||
+    if true; then
+      echo 'Install failed!' 1>&2
+      exit 1
+    fi
+
+  ln -T /etc/resolv.conf "$CONTAINERROOT/$name/etc/resolv.conf"
+
+  echo "Successfully created container '$name'!" 1>&2
+}
+
+chrootcontainer() {
+  if [ -z "$1" ]; then
+    echo 'Please specify a container!' 1>&2
+    exit 1
+  fi
+
+  if [ ! -d "$CONTAINERROOT/$1" ]; then
+    echo "Container '$1' does not exists!" 1>&2
+    exit 1
+  fi
+
+  mountpoint "$CONTAINERROOT/$1/proc" 2>&1 > /dev/null || mount -t proc "$1-proc" "$CONTAINERROOT/$1/proc"
+  mountpoint "$CONTAINERROOT/$1/sys" 2>&1 > /dev/null || mount -t sysfs "$1-sysfs" "$CONTAINERROOT/$1/sys"
+  mountpoint "$CONTAINERROOT/$1/dev" 2>&1 > /dev/null || mount -o bind /dev "$CONTAINERROOT/$1/dev"
+  mountpoint "$CONTAINERROOT/$1/run" 2>&1 > /dev/null || mount -t tmpfs "$1-run" "$CONTAINERROOT/$1/run"
+  mountpoint "$CONTAINERROOT/$1/tmp" 2>&1 > /dev/null ||
+    true_false "$TMPFS" && mount -t tmpfs "$1-tmp" 2>&1 > /dev/null "$CONTAINERROOT/$1/tmp"
+
+  chroot "$CONTAINERROOT/$1" "$([ -n "$2" ] && echo "$2" || echo '/bin/sh')"
+}
+
+lscontainer() {
+  if [ "$(ls "$CONTAINERROOT" | wc -l)" -eq 0 ]; then
+    echo 'No containers'
+    exit 1
+  fi
+
+  echo "Containers: $(ls "$CONTAINERROOT" | wc -l)"
+  ls "$CONTAINERROOT/$1" |
+    awk "{print \"\t\" \$0}"
+}
+
+rmcontainer() {
+  if [ -z "$1" ]; then
+    echo 'Please specify the container to delete!' 1>&2
+    exit 1
+  fi
+
+  for container in $@; do
+    if [ ! -d "$CONTAINERROOT/$container" ]; then
+      echo "Container '$container' does not exists!" 1>&2
+    else
+      mountpoint "$CONTAINERROOT/$container/proc" && umount "$CONTAINERROOT/$container/proc" 2>/dev/null
+      mountpoint "$CONTAINERROOT/$container/sys" && umount "$CONTAINERROOT/$container/sys" 2>/dev/null
+      mountpoint "$CONTAINERROOT/$container/dev" && umount "$CONTAINERROOT/$container/dev" 2>/dev/null
+      mountpoint "$CONTAINERROOT/$container/run" && umount "$CONTAINERROOT/$container/run" 2>/dev/null
+      mountpoint "$CONTAINERROOT/$container/tmp" && umount "$CONTAINERROOT/$container/tmp" 2>/dev/null
+      rm -rf "$CONTAINERROOT/$container"
+    fi
+  done
+}
+
+
+main() {
+if is_root; then true; else
+    echo 'You have to be root to use this!' 1>&2
+    exit 1
+  fi
+
+  load_config
+
+  case "$(echo "$0" | rev | cut -d '/' -f 1 | rev)" in
+    'mkcontainer')
+      mkcontainer $@
+      ;;
+
+    'lscontainer')
+      lscontainer $@
+      ;;
+
+    'chrootcontainer')
+      chrootcontainer $@
+      ;;
+
+    'rmcontainer')
+      rmcontainer $@
+      ;;
+
+    *)
+      if [ -z "$1" ]; then
+        echo "Commands:\n" \
+          "\tmkcontainer\tCreate a new container\n\n" \
+          "\tlscontainer\tList containers\n\n" \
+          "\tchrootcontainer\tChroot into a container\n\n" \
+          "\trmcontainer\tDelete a container\n\n"
+        exit 1
+      fi
+
+      $@
+      ;;
+  esac
+}
+
+main $@
+
