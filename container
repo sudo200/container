@@ -8,6 +8,12 @@ CONFIG="$CONFIG_ROOT/$CONFIG_NAME"
 
 ####################
 
+
+
+
+CONTAINER_VERSION='v2.0.0'
+
+
 is_root() {
   [ "$(id -u)" = '0' ]
 }
@@ -63,6 +69,12 @@ web_install() {
 local_install() {
   tar xf "$ROOTFS_AR"
 }
+
+version() {
+  echo "container $CONTAINER_VERSION"
+  exit 1
+}
+
 
 mkcontainer() {
   name="$1"
@@ -150,12 +162,20 @@ rmcontainer() {
 
 
 main() {
-if is_root; then true; else
+  if ! is_root; then
     echo 'You have to be root to use this!' 1>&2
     exit 1
   fi
 
   load_config
+
+  for i in $@; do
+    case "$i" in
+      '-v'|'--version')
+        version
+        ;;
+    esac
+  done
 
   case "$(echo "$0" | rev | cut -d '/' -f 1 | rev)" in
     'mkcontainer')
