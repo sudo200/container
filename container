@@ -30,14 +30,14 @@ gen_config() {
 '# The base directory in which containers will be placed.
 export CONTAINERROOT=/usr/local/share/container
 
+# The command for user-mode chrooting.
+# It should also mount all important fs´ like /proc
+export CHROOT=xbps-uchroot
+
 # The rootfs-archive to use.
 # If path starts with "http(s)://",
 # "wget" is used to download the archive.
 export ROOTFS_AR=https://dl-cdn.alpinelinux.org/alpine/v3.17/releases/x86_64/alpine-minirootfs-3.17.0-x86_64.tar.gz
-
-# If true, a tmpfs is mounted inside the container’s "tmp" directory.
-# If system has low RAM, set this to false
-export TMPFS=true
 ' > "$CONFIG"
 }
 
@@ -107,14 +107,14 @@ chrootcontainer() {
     exit 1
   fi
 
-  mountpoint "$CONTAINERROOT/$1/proc" 2>&1 > /dev/null || mount -t proc "$1-proc" "$CONTAINERROOT/$1/proc"
-  mountpoint "$CONTAINERROOT/$1/sys" 2>&1 > /dev/null || mount -t sysfs "$1-sysfs" "$CONTAINERROOT/$1/sys"
-  mountpoint "$CONTAINERROOT/$1/dev" 2>&1 > /dev/null || mount -o bind /dev "$CONTAINERROOT/$1/dev"
-  mountpoint "$CONTAINERROOT/$1/run" 2>&1 > /dev/null || mount -t tmpfs "$1-run" "$CONTAINERROOT/$1/run"
-  mountpoint "$CONTAINERROOT/$1/tmp" 2>&1 > /dev/null ||
-    true_false "$TMPFS" && mount -t tmpfs "$1-tmp" 2>&1 > /dev/null "$CONTAINERROOT/$1/tmp"
+  #mountpoint "$CONTAINERROOT/$1/proc" 2>&1 > /dev/null || mount -t proc "$1-proc" "$CONTAINERROOT/$1/proc"
+  #mountpoint "$CONTAINERROOT/$1/sys" 2>&1 > /dev/null || mount -t sysfs "$1-sysfs" "$CONTAINERROOT/$1/sys"
+  #mountpoint "$CONTAINERROOT/$1/dev" 2>&1 > /dev/null || mount -o bind /dev "$CONTAINERROOT/$1/dev"
+  #mountpoint "$CONTAINERROOT/$1/run" 2>&1 > /dev/null || mount -t tmpfs "$1-run" "$CONTAINERROOT/$1/run"
+  #mountpoint "$CONTAINERROOT/$1/tmp" 2>&1 > /dev/null ||
+  #  true_false "$TMPFS" && mount -t tmpfs "$1-tmp" 2>&1 > /dev/null "$CONTAINERROOT/$1/tmp"
 
-  chroot "$CONTAINERROOT/$1" "$([ -n "$2" ] && echo "$2" || echo '/bin/sh')"
+  unshare --map-root-user -fp $CHROOT "$CONTAINERROOT/$1" "$([ -n "$2" ] && echo "$2" || echo '/bin/sh')"
 }
 
 lscontainer() {
