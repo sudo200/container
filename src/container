@@ -162,13 +162,6 @@ rmcontainer() {
 
 
 main() {
-  if ! is_root; then
-    echo 'You have to be root to use this!' 1>&2
-    exit 1
-  fi
-
-  load_config
-
   for i in $@; do
     case "$i" in
       '-v'|'--version')
@@ -177,7 +170,14 @@ main() {
     esac
   done
 
-  case "$(echo "$0" | rev | cut -d '/' -f 1 | rev)" in
+  if ! is_root; then
+    echo 'You have to be root to use this!' 1>&2
+    exit 1
+  fi
+
+  load_config
+
+    case "$(echo "$0" | rev | cut -d '/' -f 1 | rev)" in
     'mkcontainer')
       mkcontainer $@
       ;;
